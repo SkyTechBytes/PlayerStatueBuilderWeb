@@ -1,7 +1,7 @@
 import type { SchematicDocument } from '../domain/schematic'
 import type { BlockId } from '../domain/voxel-model'
 
-export const COMMAND_BLOCK_LIMIT = 32_000
+export const COMMAND_BLOCK_LIMIT = 32_500
 
 interface PlacedBlock {
   x: number
@@ -16,21 +16,51 @@ interface BlockBox extends PlacedBlock {
   maxZ: number
 }
 
-export function createCommandBlockCommand(schematic: SchematicDocument): string {
-  return createCommandBlockCommandForVersion(schematic, 'current')
+export type StatueOrientation = 'south' | 'west' | 'north' | 'east'
+export interface CommandBlockOptions {
+  orientation?: StatueOrientation
+  version?: 'current' | 'legacy'
+  mode?: 'build' | 'undo'
 }
 
-export function createLegacyCommandBlockCommand(schematic: SchematicDocument): string {
-  return createCommandBlockCommandForVersion(schematic, 'legacy')
+export function createCommandBlockCommands(schematic: SchematicDocument, options: CommandBlockOptions = {}): string[] {
+  if (schematic.blocks.length === 0) throw new Error('Cannot create commands for an empty statue')
+  const { orientation = 'south', version = 'current', mode = 'build' } = options
+  const commands = mode === 'build'
+    ? compactBlocks(schematic, orientation).map(createPlacementCommand)
+    : [createClearCommand(schematic, orientation)]
+  const overhead = createRig([], version).length + 1
+  const parts: string[] = []
+  let batch: string[] = []
+  let length = overhead
+  for (const command of commands) {
+    const minecart = createMinecart(command)
+    if (overhead + minecart.length > COMMAND_BLOCK_LIMIT) {
+      throw new Error('A single placement exceeds the command-block character limit')
+    }
+    const separator = batch.length > 0 ? 1 : 0
+    if (length + separator + minecart.length > COMMAND_BLOCK_LIMIT) {
+      parts.push(createRig(batch, version))
+      batch = []
+      length = overhead
+    }
+    length += (batch.length > 0 ? 1 : 0) + minecart.length
+    batch.push(minecart)
+  }
+  if (batch.length > 0) parts.push(createRig(batch, version))
+  return parts
 }
 
-function createCommandBlockCommandForVersion(schematic: SchematicDocument, version: 'current' | 'legacy'): string {
-  const commands = compactBlocks(schematic).map(createPlacementCommand)
-  const minecarts = [
-    ...commands,
-    'setblock ~ ~1 ~ minecraft:command_block{auto:1b,Command:"fill ~ ~-3 ~ ~ ~ ~ minecraft:air"}',
+function createMinecart(command: string): string {
+  return `{id:"minecraft:command_block_minecart",Command:${JSON.stringify(command)}}`
+}
+
+function createRig(placements: readonly string[], version: 'current' | 'legacy'): string {
+  const cleanup = [
+    'setblock ~ ~1 ~ minecraft:command_block{auto:1b,Command:"fill ~ ~-2 ~ ~ ~ ~ minecraft:air"}',
     'kill @e[type=minecraft:command_block_minecart,distance=..1]',
-  ].map((command) => `{id:"minecraft:command_block_minecart",Command:${JSON.stringify(command)}}`).join(',')
+  ].map(createMinecart)
+  const minecarts = [...placements, ...cleanup].join(',')
 
   const redstoneBlock = version === 'current'
     ? '"minecraft:redstone_block"'
@@ -38,19 +68,16 @@ function createCommandBlockCommandForVersion(schematic: SchematicDocument, versi
   const activatorRail = version === 'current'
     ? '{id:"minecraft:activator_rail",properties:{powered:"true"}}'
     : '{Name:"minecraft:activator_rail",Properties:{powered:"true"}}'
-  const command = `summon minecraft:falling_block ~ ~1 ~ {BlockState:${redstoneBlock},Time:1,DropItem:0b,Passengers:[{id:"minecraft:armor_stand",Health:0f,Passengers:[{id:"minecraft:falling_block",BlockState:${activatorRail},Time:1,DropItem:0b,Passengers:[${minecarts}]}]}]}`
-  if (command.length > COMMAND_BLOCK_LIMIT) {
-    throw new Error(`Command is ${command.length.toLocaleString()} characters; Minecraft's safe limit is ${COMMAND_BLOCK_LIMIT.toLocaleString()}. Download the .mcfunction export instead.`)
-  }
-  return command
+  return `summon minecraft:falling_block ~ ~1 ~ {BlockState:${redstoneBlock},Time:1,DropItem:0b,Passengers:[{id:"minecraft:armor_stand",Health:0f,Passengers:[{id:"minecraft:falling_block",BlockState:${activatorRail},Time:1,DropItem:0b,Passengers:[${minecarts}]}]}]}`
 }
 
-function compactBlocks(schematic: SchematicDocument): BlockBox[] {
+function compactBlocks(schematic: SchematicDocument, orientation: StatueOrientation): BlockBox[] {
   const remaining = new Map<string, PlacedBlock>()
   for (const block of schematic.blocks) {
     const state = schematic.palette[block.palette]?.state
     if (!state) throw new Error(`Block references missing palette index ${block.palette}`)
-    remaining.set(key(block.x, block.y, block.z), { x: block.x, y: block.y, z: block.z, state })
+    const position = orientPosition(block.x, block.z, schematic.size.x, schematic.size.z, orientation)
+    remaining.set(key(position.x, block.y, position.z), { ...position, y: block.y, state })
   }
 
   const boxes: BlockBox[] = []
@@ -87,6 +114,26 @@ function createPlacementCommand(box: BlockBox): string {
   }
   const to = relativePosition(box.maxX + 1, box.maxY - 1, box.maxZ)
   return `fill ${from} ${to} ${box.state}`
+}
+
+function createClearCommand(schematic: SchematicDocument, orientation: StatueOrientation): string {
+  const size = orientedSize(schematic.size.x, schematic.size.z, orientation)
+  return `fill ${relativePosition(1, -1, 0)} ${relativePosition(size.x, schematic.size.y - 2, size.z - 1)} minecraft:air`
+}
+
+function orientPosition(x: number, z: number, width: number, depth: number, orientation: StatueOrientation): { x: number; z: number } {
+  switch (orientation) {
+    case 'west': return { x: depth - 1 - z, z: x }
+    case 'north': return { x: width - 1 - x, z: depth - 1 - z }
+    case 'east': return { x: z, z: width - 1 - x }
+    case 'south': return { x, z }
+  }
+}
+
+function orientedSize(width: number, depth: number, orientation: StatueOrientation): { x: number; z: number } {
+  return orientation === 'east' || orientation === 'west'
+    ? { x: depth, z: width }
+    : { x: width, z: depth }
 }
 
 function relativePosition(x: number, y: number, z: number): string {

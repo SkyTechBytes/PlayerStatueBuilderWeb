@@ -9,7 +9,7 @@ import { generateStatue, type RasterImage } from '../domain/statue-generator'
 import type { PaletteFamily } from '../domain/palette'
 import type { SkinModel, SkinModelChoice } from '../domain/skin-layout'
 import type { BlockId, VoxelMap } from '../domain/voxel-model'
-import { exportSchematic, type ExporterId } from '../exporters'
+import { exportSchematic, type ExporterId, type ExportOptions } from '../exporters'
 
 interface StatueState {
   playerName?: string
@@ -156,14 +156,16 @@ export const useStatueStore = defineStore('statue', {
       this.regenerate()
     },
 
-    async runExport(id: ExporterId): Promise<'downloaded' | 'copied' | null> {
+    async runExport(id: ExporterId, options?: ExportOptions, partIndex = 0): Promise<'downloaded' | 'copied' | null> {
       try {
         const schematic = createSchematicDocument(this.detectedModel, this.voxels.values())
-        const artifact = exportSchematic(schematic, id)
+        const artifact = exportSchematic(schematic, id, options)
         if (artifact.delivery === 'clipboard') {
-          if (typeof artifact.data !== 'string') throw new Error('Clipboard exports must produce text')
-          await navigator.clipboard.writeText(artifact.data)
+          const text = Array.isArray(artifact.data) ? artifact.data[partIndex] : artifact.data
+          if (typeof text !== 'string') throw new Error('Clipboard export part is missing or is not text')
+          await navigator.clipboard.writeText(text)
         } else {
+          if (Array.isArray(artifact.data)) throw new Error('Download exports must produce a single file')
           download(artifact.filename, artifact.data, artifact.mime)
         }
         void recordStatueDownload(schematic, this.playerName)

@@ -110,8 +110,9 @@ describe('interchange and 3D exporters', () => {
   })
 
   it('registers every converter with a non-empty artifact', () => {
-    expect(SCHEMATIC_EXPORTERS).toHaveLength(13)
+    expect(SCHEMATIC_EXPORTERS).toHaveLength(12)
     expect(SCHEMATIC_EXPORTERS[0].id).toBe('command-block')
+    expect(SCHEMATIC_EXPORTERS[0].commandOptions).toBe(true)
     for (const exporter of SCHEMATIC_EXPORTERS) {
       const artifact = exportSchematic(schematic, exporter.id)
       expect(artifact.filename).toBe(`player-statue${exporter.extension}`)
