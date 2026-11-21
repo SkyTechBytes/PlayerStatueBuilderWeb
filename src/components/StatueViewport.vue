@@ -13,6 +13,7 @@ let camera: THREE.PerspectiveCamera | undefined
 let controls: OrbitControls | undefined
 let voxelGroup: THREE.Group | undefined
 let resizeRenderer: (() => void) | undefined
+let resizeObserver: ResizeObserver | undefined
 const geometry = new THREE.BoxGeometry(0.94, 0.94, 0.94)
 
 function isStainedGlass(voxel: Voxel): boolean {
@@ -99,6 +100,8 @@ onMounted(() => {
     camera.updateProjectionMatrix()
   }
   window.addEventListener('resize', resizeRenderer)
+  resizeObserver = new ResizeObserver(resizeRenderer)
+  resizeObserver.observe(host)
   resizeRenderer()
 
   rebuild()
@@ -111,6 +114,7 @@ onMounted(() => {
 watch(() => store.voxels, rebuild)
 
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
   if (resizeRenderer) window.removeEventListener('resize', resizeRenderer)
   renderer?.setAnimationLoop(null)
   controls?.dispose()
