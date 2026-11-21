@@ -51,11 +51,11 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite, normally `http://localhost:5173/`.
+Open the URL printed by Vite, normally `http://localhost:5173/PlayerStatueBuilderWeb/`.
 
 Player-name lookup works on static hosting. Following upstream's `MineskinSkinFetcher`, the browser requests `https://mineskin.eu/download/{username}` directly and falls back to MCHeads' public name endpoint.
 
-To deploy under a normal `public_html` directory, run `npm run build` and upload the contents of `dist/` to `public_html/`.
+Builds default to the GitHub Pages path `/PlayerStatueBuilderWeb/`. To deploy under a normal `public_html` directory, run `npm run build -- --base=./` and upload the contents of `dist/` to `public_html/`.
 
 Production check and preview:
 
